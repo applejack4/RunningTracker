@@ -70,6 +70,8 @@ class TrackingService : LifecycleService() {
 
     private var lastSecondTimeStamp = 0L
 
+    var serviceKilled : Boolean = false
+
     companion object {
         val timeRunInMillis = MutableLiveData<Long>()
         val isTracking = MutableLiveData<Boolean>()
@@ -110,8 +112,10 @@ class TrackingService : LifecycleService() {
             set(currNotificationBuilder, ArrayList<NotificationCompat.Action>())
         }
 
-        currNotificationBuilder = baseNotificationBuilder.addAction(R.drawable.ic_pause, notificationActionText, pendingIntent)
-        notificationManager.notify(NOTIFICATION_ID, currNotificationBuilder.build())
+        if(!serviceKilled){
+            currNotificationBuilder = baseNotificationBuilder.addAction(R.drawable.ic_pause, notificationActionText, pendingIntent)
+            notificationManager.notify(NOTIFICATION_ID, currNotificationBuilder.build())
+        }
     }
 
     private fun startTime(){
@@ -161,6 +165,7 @@ class TrackingService : LifecycleService() {
 
                     ACTION_STOP_SERVICE ->{
                         Timber.d("Stop")
+                        killService()
                     }
                 }
         }
@@ -227,8 +232,10 @@ class TrackingService : LifecycleService() {
         startForeground(NOTIFICATION_ID, baseNotificationBuilder.build())
 
         timeRunInSeconds.observe(this, Observer {
-            val notification = currNotificationBuilder.setContentText(TrackingUtility.getFormattedStopWatchTime(it * 1000))
-            notificationManager.notify(NOTIFICATION_ID, notification.build())
+            if(!serviceKilled){
+                val notification = currNotificationBuilder.setContentText(TrackingUtility.getFormattedStopWatchTime(it * 1000))
+                notificationManager.notify(NOTIFICATION_ID, notification.build())
+            }
         })
     }
 
@@ -251,5 +258,14 @@ class TrackingService : LifecycleService() {
     private fun pauseService(){
         isTracking.postValue(false)
         isTimeEnabled = false
+    }
+
+    private fun killService(){
+        serviceKilled = true
+        isFirstRun = true
+        pauseService()
+        postInitialValues()
+        stopForeground(true)
+        stopSelf()
     }
 }

@@ -48,5 +48,4 @@ object ServiceModule {
         .setContentTitle("Running App")
         .setContentText("00:00:00")
         .setContentIntent(pendingIntent)
-
 }

@@ -4,24 +4,32 @@ import android.annotation.SuppressLint
 import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
+import android.view.*
+import android.widget.Toast
 import androidx.fragment.app.Fragment
-import android.view.LayoutInflater
-import android.view.View
-import android.view.ViewGroup
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.Observer
+import androidx.navigation.fragment.findNavController
 import com.example.runningapp.R
 import com.example.runningapp.Service.TrackingService
 import com.example.runningapp.Service.polyLine
 import com.example.runningapp.databinding.FragmentTrackingBinding
+import com.example.runningapp.db.Run
 import com.example.runningapp.other.Constants.ACTION_PAUSE_SERVICE
 import com.example.runningapp.other.Constants.ACTION_START_OR_RESUME_SERVICE
+import com.example.runningapp.other.Constants.ACTION_STOP_SERVICE
 import com.example.runningapp.other.TrackingUtility
 import com.example.runningapp.ui.ViewModel.MainViewModel
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.GoogleMap
+import com.google.android.gms.maps.model.LatLng
+import com.google.android.gms.maps.model.LatLngBounds
 import com.google.android.gms.maps.model.PolylineOptions
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.snackbar.Snackbar
 import dagger.hilt.android.AndroidEntryPoint
+import java.util.*
+import kotlin.math.round
 
 @AndroidEntryPoint
 class TrackingFragment : Fragment(R.layout.fragment_tracking) {
@@ -36,11 +44,16 @@ class TrackingFragment : Fragment(R.layout.fragment_tracking) {
 
     private var curTimeInMillis = 0L
 
+    private var menu : Menu ?= null
+
+    private var weight = 80f
+
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View {
+        setHasOptionsMenu(true)
         _binding = FragmentTrackingBinding.inflate(layoutInflater, container, false)
         return _binding.root
     }
@@ -48,6 +61,12 @@ class TrackingFragment : Fragment(R.layout.fragment_tracking) {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         _binding.mapView.onCreate(savedInstanceState)
+
+        _binding.btnFinishRun.setOnClickListener {
+            zoomToSeeWholeTrack()
+            endRunAndSaveToDB()
+        }
+
         _binding.mapView.getMapAsync {
             map = it
             addPolyLines()
@@ -58,6 +77,45 @@ class TrackingFragment : Fragment(R.layout.fragment_tracking) {
         }
 
         subscribeToObserver()
+    }
+
+    override fun onCreateOptionsMenu(menu: Menu, inflater: MenuInflater) {
+        super.onCreateOptionsMenu(menu, inflater)
+        inflater.inflate(R.menu.toolbar_trackig_menu, menu)
+        this.menu = menu
+    }
+
+    override fun onPrepareOptionsMenu(menu: Menu) {
+        super.onPrepareOptionsMenu(menu)
+        if(curTimeInMillis > 0L){
+            this.menu?.getItem(0)?.isVisible = true
+        }
+    }
+
+    private fun showCancelTrackingDialog(){
+        val dialog = MaterialAlertDialogBuilder(requireContext(), R.style.AlertDialogTheme)
+            .setTitle("Are you Sure, You want to cancel the run")
+            .setIcon(R.drawable.ic_delete).setPositiveButton("Yes"){ _, _ ->
+                stopRun()
+            }.setNegativeButton("No"){dialogInterface, _ ->
+                dialogInterface.cancel()
+            }.create()
+
+        dialog.show()
+    }
+
+    private fun stopRun() {
+        sendCommandToService(ACTION_STOP_SERVICE)
+        findNavController().navigate(R.id.action_trackingFragment_to_runFragment)
+    }
+
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        when(item.itemId){
+            R.id.miCancelTracking ->{
+                showCancelTrackingDialog()
+            }
+        }
+        return super.onOptionsItemSelected(item)
     }
 
     private fun subscribeToObserver(){
@@ -80,6 +138,7 @@ class TrackingFragment : Fragment(R.layout.fragment_tracking) {
 
     private fun toggleRun(){
         if(isTracking){
+            menu?.getItem(0)?.isVisible = true
             sendCommandToService(ACTION_PAUSE_SERVICE)
         }else{
             sendCommandToService(ACTION_START_OR_RESUME_SERVICE)
@@ -94,6 +153,7 @@ class TrackingFragment : Fragment(R.layout.fragment_tracking) {
             _binding.btnFinishRun.visibility = View.VISIBLE
         }else{
             _binding.btnToggleRun.text = "Stop"
+            menu?.getItem(0)?.isVisible = true
             _binding.btnFinishRun.visibility = View.GONE
         }
     }
@@ -122,6 +182,39 @@ class TrackingFragment : Fragment(R.layout.fragment_tracking) {
             val lastLatLan = pathPoints.last().last()
             val polyLineOptions = PolylineOptions().color(Color.RED).width(8f).add(preLastLatLng).add(lastLatLan)
             map?.addPolyline(polyLineOptions)
+        }
+    }
+
+    private fun zoomToSeeWholeTrack(){
+        val bounds = LatLngBounds.Builder()
+        for (polyLines in pathPoints){
+            for(pos in polyLines){
+                bounds.include(pos)
+            }
+        }
+
+        map?.moveCamera(
+            CameraUpdateFactory.newLatLngBounds(
+                bounds.build(),
+                _binding.mapView.width,
+                _binding.mapView.height,
+                (_binding.mapView.height * 0.05f).toInt()
+            )
+        )
+    }
+
+    private fun endRunAndSaveToDB(){
+        map?.snapshot { bmp ->
+            var distanceInMeters = 0
+            for (polyLines in pathPoints){
+                distanceInMeters += TrackingUtility.calculatePolyLineLength(polyLines).toInt()
+            }
+            val avgSpeed = round((distanceInMeters / 1000f) / (curTimeInMillis / 1000f / 60 / 60)) / 10f
+            val dateTimeStamp = Calendar.getInstance().timeInMillis
+            val caloriesBurned = ((distanceInMeters / 1000f) * weight).toInt()
+            val run = Run(bmp, dateTimeStamp, avgSpeed, distanceInMeters, curTimeInMillis, caloriesBurned)
+            viewModel.insertRun(run)
+            Toast.makeText(requireContext(), "Run Added successfully.", Toast.LENGTH_LONG).show()
         }
     }
 

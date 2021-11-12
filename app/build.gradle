@@ -97,8 +97,8 @@ dependencies {
     // Timber
     implementation 'com.jakewharton.timber:timber:4.7.1'
 
-//    // MPAndroidChart
-//    implementation 'com.github.PhilJay:MPAndroidChart:v3.1.0'
+    // MPAndroidChart
+    implementation 'com.github.PhilJay:MPAndroidChart:v3.1.0'
 
     //Dagger - Hilt
     implementation "com.google.dagger:hilt-android:2.38.1"
